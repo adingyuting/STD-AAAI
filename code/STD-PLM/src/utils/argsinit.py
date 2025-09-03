@@ -1,4 +1,5 @@
 import argparse
+from pathlib import Path
 
 def AddModelArgs(parser):
 
@@ -39,9 +40,11 @@ def AddModelArgs(parser):
 
 def AddDataArgs(parser):
 
-    parser.add_argument("--dataset" ,type=str)
+    parser.add_argument("--dataset" ,type=str, default="D1")
 
-    parser.add_argument("--data_path" ,type=str)
+    parser.add_argument("--data_path" ,type=str, default=None)
+
+    parser.add_argument("--data_root" ,type=str, default="datasets")
 
     parser.add_argument("--adj_filename" ,default=None , type=str)
 
@@ -114,5 +117,17 @@ def InitArgs():
     AddTrainArgs(parser)
 
     args = parser.parse_args()
+
+    # infer default file paths when not explicitly provided
+    ds_dir = Path(args.data_root) / args.dataset
+    if args.data_path is None:
+        try:
+            args.data_path = str(next(ds_dir.glob("data.*")))
+        except StopIteration as e:
+            raise FileNotFoundError(f"No data file found under {ds_dir}") from e
+    if args.adj_filename is None:
+        pos_file = next(ds_dir.glob("position.*"), None)
+        if pos_file is not None:
+            args.adj_filename = str(pos_file)
 
     return args
