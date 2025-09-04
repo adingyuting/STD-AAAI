@@ -47,33 +47,32 @@ class Phi2(BaseModel):
 
         self.emb_dim = 2560
 
-        llm = Model.from_pretrained('AI-ModelScope/phi-2',trust_remote_code=True)
+        llm = Model.from_pretrained('AI-ModelScope/phi-2', trust_remote_code=True)
+        llm = llm.model  # PhiForCausalLM stores the base model under "model"
 
-        if not layers is None:
+        if layers is not None:
+            llm.layers = llm.layers[:layers]
 
-            llm.transformer.h = llm.transformer.h[:layers]
-
-        for pblock in llm.transformer.h:
+        for pblock in llm.layers:
             mixer = pblock.mixer
             mixer.inner_attn.causal = causal
             mixer.inner_attn.causal = causal
-        
+
         for name, param in llm.named_parameters():
             param.requires_grad_(False)
 
         if lora:
-
             lora_config = LoRAConfig(
                     r=16,
                     target_modules=['Wqkv'],
                     lora_alpha=32,
                     lora_dropout=0.)
-            
-            llm = Swift.prepare_model(llm, lora_config,trust_remote_code=True)
 
-        self.llm_embd = llm.transformer.embd # wte:51200->2560  (B,len,1) -> (B,len,emb_dim)
+            llm = Swift.prepare_model(llm, lora_config, trust_remote_code=True).model
 
-        self.llm_h = llm.transformer.h # ModuleList (B,len,emb_dim) ->  (B,len,emb_dim)
+        self.llm_embd = llm.embed_tokens  # wte:51200->2560  (B,len,1) -> (B,len,emb_dim)
+
+        self.llm_h = llm.layers  # ModuleList (B,len,emb_dim) ->  (B,len,emb_dim)
         
         if ln_grad:
             for i, (name, param) in enumerate(self.llm_h.named_parameters()):
