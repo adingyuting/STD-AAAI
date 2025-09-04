@@ -211,7 +211,17 @@ timestampfun = {
     'D4': lambda T: generatetimestamp(start='2010-01-01 00:00:00', periods=T, freq='1D'),
 }
 
+
 class CustomProvider(DataProvider):
+    """Load datasets stored as dense matrices with optional positions.
+
+    ``data_path`` should point to a table of shape ``(node, time)`` saved as
+    ``.mat`` or text/CSV file separated by ``::``. The loader transposes the
+    array to ``(time, node, 1)`` and constructs a mask where non-NaN values are
+    marked as observed. If ``adj_path`` is supplied, a position file with
+    longitude/latitude is used to build adjacency and distance matrices
+    on-the-fly; otherwise identity matrices are returned.
+    """
 
     def read_data(self, data_path, adj_path=None):
         table = load_table(Path(data_path))
@@ -232,45 +242,5 @@ class CustomProvider(DataProvider):
 
         return data, node_num, features, adj_mx, distance_mx, timestamp, mask, mask.clone()
 
-
-class TripletProvider(DataProvider):
-    """Load datasets stored as (node_id, time_id, value) triplets.
-
-    The file at ``data_path`` must contain three columns separated by ``::``
-    (or standard CSV delimiter) representing node index, time index and the
-    observed value. Missing entries simply do not appear in the file. A
-    position file can be supplied via ``adj_path`` to build the adjacency
-    matrix on the fly; otherwise an identity matrix is used.
-    """
-
-    def read_data(self, data_path, adj_path=None):
-        # 1) read triplets
-        df = pd.read_csv(data_path, sep="::", engine="python", header=None,
-                         names=["node", "time", "value"])
-
-        node_num = int(df["node"].max() + 1)
-        T = int(df["time"].max() + 1)
-
-        data = torch.zeros((T, node_num, 1), dtype=torch.float32)
-        mask = torch.zeros_like(data)
-
-        t = df["time"].to_numpy(dtype=np.int64)
-        n = df["node"].to_numpy(dtype=np.int64)
-        v = df["value"].to_numpy(dtype=np.float32)
-
-        data[t, n, 0] = torch.from_numpy(v)
-        mask[t, n, 0] = 1
-
-        # 2) adjacency from positions if provided
-        if adj_path is not None:
-            pos = load_table(Path(adj_path))
-            adj_mx, distance_mx = build_adj_from_pos(pos)
-        else:
-            adj_mx = np.eye(node_num, dtype=np.float32)
-            distance_mx = adj_mx
-
-        timestamp = timestampfun[self.dataset](T)
-
-        return data, node_num, 1, adj_mx, distance_mx, timestamp, mask, mask.clone()
 
 

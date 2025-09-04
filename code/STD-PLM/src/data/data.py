@@ -1,12 +1,12 @@
 import torch
 import torch.utils.data
-from data.dataprovider import CustomProvider, TripletProvider
+from data.dataprovider import CustomProvider
 
 data_dict = {
-    'D1': TripletProvider,
-    'D2': TripletProvider,
-    'D3': TripletProvider,
-    'D4': TripletProvider,
+    'D1': CustomProvider,
+    'D2': CustomProvider,
+    'D3': CustomProvider,
+    'D4': CustomProvider,
 }
 
 def data_loader(dataset, batch_size, shuffle=True, drop_last=True):
