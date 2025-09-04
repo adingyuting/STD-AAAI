@@ -28,17 +28,26 @@ def build_adj_from_pos(pos: np.ndarray):
     return adj.astype(np.float32), dist.astype(np.float32)
 
 def generate_sample_by_sliding_window(data, sample_len, step=1):
+    """Generate sliding window samples.
 
+    Ensures at least one window is returned even when the series length is
+    shorter than ``sample_len``. This prevents ``torch.cat`` from receiving an
+    empty list which previously raised ``RuntimeError``.
+    """
+
+    T = data.shape[0]
     sample = []
 
-    for i in range(0, data.shape[0] - sample_len, step):
+    if T <= sample_len:
+        # Not enough length for a full window; repeat the last ``sample_len``
+        sample.append(torch.unsqueeze(data[-sample_len:], 0))
+    else:
+        for i in range(0, T - sample_len + 1, step):
+            sample.append(torch.unsqueeze(data[i:i + sample_len], 0))
+        if (T - sample_len) % step != 0:
+            sample.append(torch.unsqueeze(data[-sample_len:], 0))
 
-        sample.append(torch.unsqueeze(data[i:i+sample_len] , 0))
-    
-    if (data.shape[0] - sample_len) % step !=0 :
-        sample.append(torch.unsqueeze(data[-sample_len:] , 0))
-
-    sample = torch.concat(sample,dim=0)
+    sample = torch.cat(sample, dim=0)
 
     return sample
 
