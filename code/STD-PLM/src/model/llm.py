@@ -27,15 +27,15 @@ class BaseModel(nn.Module):
         inputs = self.tokenizer.convert_tokens_to_ids(months)
         #self.tokenizer('January,February,March,April,May,June,July,August,September,October,November,December', 
                   #  return_tensors="pt", return_attention_mask=False)
-        #month_ids= inputs['input_ids'].cuda().view(-1,1)[::2]
-        month_ids = torch.tensor(inputs).cuda().view(-1,1)
+        #month_ids= inputs['input_ids'].to(self.llm_embd.weight.device).view(-1,1)[::2]
+        month_ids = torch.tensor(inputs, device=self.llm_embd.weight.device).view(-1,1)
         month_embedding = self.getembedding(month_ids).view(-1,self.emb_dim)
         return month_embedding
     
     def getweekembedding(self):
         weeks = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
         inputs = self.tokenizer.convert_tokens_to_ids(weeks)
-        week_ids = torch.tensor(inputs).cuda().view(-1,1)
+        week_ids = torch.tensor(inputs, device=self.llm_embd.weight.device).view(-1,1)
         week_embedding = self.getembedding(week_ids).view(-1,self.emb_dim)
         return week_embedding
 
@@ -99,28 +99,17 @@ class Phi2(BaseModel):
         position_ids = torch.arange(seq_len, device=hidden_state.device).unsqueeze(0).expand(batch_size, -1)
 
         for layer in self.llm_h:
-            # try to locate the attention block to generate rotary embeddings
-            attn = getattr(layer, "self_attn", None)
+            attn = getattr(layer, 'self_attn', None)
             if attn is None:
-                mixer = getattr(layer, "mixer", None)
+                mixer = getattr(layer, 'mixer', None)
                 if mixer is not None:
-                    attn = getattr(mixer, "inner_attn", mixer)
-
-            pos_emb = None
-            if attn is not None and hasattr(attn, "rotary_emb"):
-                pos_emb = attn.rotary_emb(hidden_state, position_ids)
-
-            try:
-                if pos_emb is not None:
-                    hidden_state = layer(hidden_state, attention_mask=attention_mask, position_embeddings=pos_emb)
-                else:
-                    hidden_state = layer(hidden_state, attention_mask=attention_mask, position_ids=position_ids)
-            except TypeError:
-                # Fall back to the simplest signature the layer accepts
-                if pos_emb is not None:
-                    hidden_state = layer(hidden_state, position_embeddings=pos_emb)
-                else:
-                    hidden_state = layer(hidden_state)
+                    attn = getattr(mixer, 'inner_attn', mixer)
+            if attn is None or not hasattr(attn, 'rotary_emb'):
+                raise RuntimeError('Attention block lacks rotary_emb')
+            pos_emb = attn.rotary_emb(hidden_state, position_ids)
+            if pos_emb is None:
+                raise RuntimeError('rotary_emb returned None')
+            hidden_state = layer(hidden_state, attention_mask=attention_mask, position_embeddings=pos_emb)
 
         out = hidden_state
 
@@ -137,7 +126,7 @@ class Phi2(BaseModel):
     def getmonthembedding(self):
         inputs = self.tokenizer('January,February,March,April,May,June,July,August,September,October,November,December', 
                     return_tensors="pt", return_attention_mask=False)
-        month_ids= inputs['input_ids'].cuda().view(-1,1)[::2]
+        month_ids= inputs['input_ids'].to(self.llm_embd.weight.device).view(-1,1)[::2]
         month_embedding = self.getembedding(month_ids).view(-1,self.emb_dim)
         return month_embedding
 

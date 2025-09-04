@@ -79,8 +79,8 @@ class NodeEmbedding(nn.Module):
         eigvec, eigval = lap_eig(self.adj_mx)
         k = self.k
         if k>N:
-            eigvec = np.concatenate((eigvec, np.zeros(N,k-N)), dim = -1)
-            eigval = np.concatenate((eigval, np.zeros(k-N)), dim = -1)
+            eigvec = np.concatenate((eigvec, np.zeros((N, k - N))), axis=-1)
+            eigval = np.concatenate((eigval, np.zeros(k - N)), axis=0)
         
         ind = np.abs(eigval).argsort(axis=0)[::-1][:k]
 
@@ -191,12 +191,15 @@ class Node2Token(nn.Module):
 
 class STALLM(nn.Module):
     def __init__(self,basemodel,sample_len, output_len,\
+                 
                  input_dim , output_dim , 
                   node_emb_dim , sag_dim, sag_tokens, \
                  adj_mx = None, dis_mx = None , use_node_embedding = True,\
                  use_timetoken = True, use_sandglassAttn = True, \
-                 dropout = 0, trunc_k = 16, t_dim = 64,wo_conloss=False):
+                 dropout = 0, trunc_k = 16, t_dim = 64,wo_conloss=False, device=None):
         super().__init__()
+
+        self.device = torch.device(device if device is not None else ('cuda' if torch.cuda.is_available() else 'cpu'))
 
         self.topological_sort_node = True
 
@@ -342,11 +345,11 @@ class STALLM(nn.Module):
 
     def setadj(self,adj_mx,dis_mx):
 
-        self.adj_mx = torch.tensor(adj_mx).cuda()
-        self.dis_mx = torch.tensor(dis_mx).cuda()
+        self.adj_mx = torch.tensor(adj_mx, device=self.device)
+        self.dis_mx = torch.tensor(dis_mx, device=self.device)
         self.d_mx = self.adj_mx.sum(dim=1)
         N = self.adj_mx.shape[0]
-        self.alpha = torch.tensor([1.05] * N).cuda() + torch.softmax(self.d_mx,dim=0)*5 
+        self.alpha = torch.tensor([1.05] * N, device=self.device) + torch.softmax(self.d_mx,dim=0)*5 
         self.node_order,self.node_order_rev = topological_sort(adj_mx)
 
 
