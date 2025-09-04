@@ -92,12 +92,22 @@ class Phi2(BaseModel):
 
         self.tokenizer = AutoTokenizer.from_pretrained("AI-ModelScope/phi-2", trust_remote_code=True)
 
-    def forward(self,x:torch.FloatTensor):
+    def forward(self, x: torch.FloatTensor, attention_mask: Optional[torch.Tensor] = None):
 
         hidden_state = x
+        batch_size, seq_len, _ = hidden_state.size()
+        position_ids = torch.arange(seq_len, device=hidden_state.device).unsqueeze(0).expand(batch_size, -1)
 
         for layer in self.llm_h:
-            hidden_state = layer(hidden_state)
+            try:
+                hidden_state = layer(hidden_state, attention_mask=attention_mask, position_ids=position_ids)
+            except TypeError:
+                attn = getattr(layer, "self_attn", None)
+                if attn is not None and hasattr(attn, "rotary_emb"):
+                    pos_emb = attn.rotary_emb(hidden_state, position_ids)
+                    hidden_state = layer(hidden_state, attention_mask=attention_mask, position_embeddings=pos_emb)
+                else:
+                    hidden_state = layer(hidden_state)
 
         out = hidden_state
 
