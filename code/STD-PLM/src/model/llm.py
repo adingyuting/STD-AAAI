@@ -54,9 +54,16 @@ class Phi2(BaseModel):
             llm.layers = llm.layers[:layers]
 
         for pblock in llm.layers:
-            mixer = pblock.mixer
-            mixer.inner_attn.causal = causal
-            mixer.inner_attn.causal = causal
+            # PhiDecoderLayer exposes self-attention under `self_attn` rather than
+            # the `mixer.inner_attn` structure used by some other models. Make the
+            # causal flag configurable when the attribute exists and is named
+            # either `causal` or `is_causal`.
+            attn = getattr(pblock, "self_attn", None)
+            if attn is not None:
+                if hasattr(attn, "causal"):
+                    attn.causal = causal
+                elif hasattr(attn, "is_causal"):
+                    attn.is_causal = causal
 
         for name, param in llm.named_parameters():
             param.requires_grad_(False)
