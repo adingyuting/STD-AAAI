@@ -99,13 +99,26 @@ class Phi2(BaseModel):
         position_ids = torch.arange(seq_len, device=hidden_state.device).unsqueeze(0).expand(batch_size, -1)
 
         for layer in self.llm_h:
+            # try to locate the attention block to generate rotary embeddings
+            attn = getattr(layer, "self_attn", None)
+            if attn is None:
+                mixer = getattr(layer, "mixer", None)
+                if mixer is not None:
+                    attn = getattr(mixer, "inner_attn", mixer)
+
+            pos_emb = None
+            if attn is not None and hasattr(attn, "rotary_emb"):
+                pos_emb = attn.rotary_emb(hidden_state, position_ids)
+
             try:
-                hidden_state = layer(hidden_state, attention_mask=attention_mask, position_ids=position_ids)
-            except TypeError:
-                attn = getattr(layer, "self_attn", None)
-                if attn is not None and hasattr(attn, "rotary_emb"):
-                    pos_emb = attn.rotary_emb(hidden_state, position_ids)
+                if pos_emb is not None:
                     hidden_state = layer(hidden_state, attention_mask=attention_mask, position_embeddings=pos_emb)
+                else:
+                    hidden_state = layer(hidden_state, attention_mask=attention_mask, position_ids=position_ids)
+            except TypeError:
+                # Fall back to the simplest signature the layer accepts
+                if pos_emb is not None:
+                    hidden_state = layer(hidden_state, position_embeddings=pos_emb)
                 else:
                     hidden_state = layer(hidden_state)
 
