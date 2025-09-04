@@ -35,13 +35,12 @@ def draw_loss_line(train_loss_line, val_loss_line, save_path):
     plt.savefig(save_path)
     plt.close()
 
-def check_dir(path:str ,mkdir=False):
+def check_dir(path: str, mkdir: bool = False):
     if os.path.exists(path):
         return True
-    elif mkdir:
-        os.mkdir(path)
+    if mkdir:
+        os.makedirs(path, exist_ok=True)
         return True
-    
     return False
 
 
