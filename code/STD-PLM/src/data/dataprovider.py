@@ -30,26 +30,31 @@ def build_adj_from_pos(pos: np.ndarray):
 def generate_sample_by_sliding_window(data, sample_len, step=1):
     """Generate sliding window samples.
 
-    Ensures at least one window is returned even when the series length is
-    shorter than ``sample_len``. This prevents ``torch.cat`` from receiving an
-    empty list which previously raised ``RuntimeError``.
+    The original implementation assumed the series length was always greater
+    than zero and at least one window could be formed, which caused
+    ``torch.cat`` to raise ``RuntimeError: expected a non-empty list of
+    Tensors`` when the input sequence was empty.  This helper now guards
+    against that edge case and returns an empty tensor of the expected shape
+    when no data is available.
     """
 
     T = data.shape[0]
-    sample = []
+
+    if T == 0:
+        # No data at all; return an empty tensor so downstream code can decide
+        # how to handle it rather than crashing here.
+        return data.new_empty((0, sample_len, *data.shape[1:]))
 
     if T <= sample_len:
         # Not enough length for a full window; repeat the last ``sample_len``
-        sample.append(torch.unsqueeze(data[-sample_len:], 0))
-    else:
-        for i in range(0, T - sample_len + 1, step):
-            sample.append(torch.unsqueeze(data[i:i + sample_len], 0))
-        if (T - sample_len) % step != 0:
-            sample.append(torch.unsqueeze(data[-sample_len:], 0))
+        return data[-sample_len:].unsqueeze(0)
 
-    sample = torch.cat(sample, dim=0)
+    sample = [data[i:i + sample_len].unsqueeze(0)
+              for i in range(0, T - sample_len + 1, step)]
+    if (T - sample_len) % step != 0:
+        sample.append(data[-sample_len:].unsqueeze(0))
 
-    return sample
+    return torch.cat(sample, dim=0)
 
 class BasicDataset(torch.utils.data.Dataset):
 
