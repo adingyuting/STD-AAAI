@@ -224,10 +224,25 @@ class CustomProvider(DataProvider):
     """
 
     def read_data(self, data_path, adj_path=None):
+        """Read dense matrix and optional position file.
+
+        If ``data_path`` or ``adj_path`` is ``None`` they are inferred from
+        ``datasets/<dataset>/`` following the naming convention
+        ``data.*`` and ``position.*`` respectively.
+        """
+        ds_dir = Path("datasets") / self.dataset
+        if data_path is None:
+            try:
+                data_path = next(ds_dir.glob("data.*"))
+            except StopIteration as e:
+                raise FileNotFoundError(f"No data file found under {ds_dir}") from e
         table = load_table(Path(data_path))
         data = torch.from_numpy(table.T[..., None].astype(np.float32))
         mask = (~torch.isnan(data)).float()
         data = torch.nan_to_num(data)
+
+        if adj_path is None:
+            adj_path = next(ds_dir.glob("position.*"), None)
 
         if adj_path is not None:
             pos = load_table(Path(adj_path))
