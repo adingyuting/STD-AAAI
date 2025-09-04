@@ -47,33 +47,43 @@ class Phi2(BaseModel):
 
         self.emb_dim = 2560
 
-        llm = Model.from_pretrained('AI-ModelScope/phi-2',trust_remote_code=True)
+        llm = Model.from_pretrained('AI-ModelScope/phi-2', trust_remote_code=True)
+        llm = llm.model  # PhiForCausalLM stores the base model under "model"
 
-        if not layers is None:
+        if layers is not None:
+            llm.layers = llm.layers[:layers]
 
-            llm.transformer.h = llm.transformer.h[:layers]
+        for pblock in llm.layers:
+            # Locate the attention module. Some implementations expose it as
+            # `self_attn` (e.g. Phi-2), while others nest it under
+            # `pblock.mixer.inner_attn`.
+            attn = getattr(pblock, "self_attn", None)
+            if attn is None:
+                mixer = getattr(pblock, "mixer", None)
+                if mixer is not None:
+                    attn = getattr(mixer, "inner_attn", mixer)
 
-        for pblock in llm.transformer.h:
-            mixer = pblock.mixer
-            mixer.inner_attn.causal = causal
-            mixer.inner_attn.causal = causal
-        
+            if attn is not None:
+                if hasattr(attn, "causal"):
+                    attn.causal = causal
+                elif hasattr(attn, "is_causal"):
+                    attn.is_causal = causal
+
         for name, param in llm.named_parameters():
             param.requires_grad_(False)
 
         if lora:
-
             lora_config = LoRAConfig(
                     r=16,
                     target_modules=['Wqkv'],
                     lora_alpha=32,
                     lora_dropout=0.)
-            
-            llm = Swift.prepare_model(llm, lora_config,trust_remote_code=True)
 
-        self.llm_embd = llm.transformer.embd # wte:51200->2560  (B,len,1) -> (B,len,emb_dim)
+            llm = Swift.prepare_model(llm, lora_config, trust_remote_code=True).model
 
-        self.llm_h = llm.transformer.h # ModuleList (B,len,emb_dim) ->  (B,len,emb_dim)
+        self.llm_embd = llm.embed_tokens  # wte:51200->2560  (B,len,1) -> (B,len,emb_dim)
+
+        self.llm_h = llm.layers  # ModuleList (B,len,emb_dim) ->  (B,len,emb_dim)
         
         if ln_grad:
             for i, (name, param) in enumerate(self.llm_h.named_parameters()):
@@ -82,12 +92,35 @@ class Phi2(BaseModel):
 
         self.tokenizer = AutoTokenizer.from_pretrained("AI-ModelScope/phi-2", trust_remote_code=True)
 
-    def forward(self,x:torch.FloatTensor):
+    def forward(self, x: torch.FloatTensor, attention_mask: Optional[torch.Tensor] = None):
 
         hidden_state = x
+        batch_size, seq_len, _ = hidden_state.size()
+        position_ids = torch.arange(seq_len, device=hidden_state.device).unsqueeze(0).expand(batch_size, -1)
 
         for layer in self.llm_h:
-            hidden_state = layer(hidden_state)
+            # try to locate the attention block to generate rotary embeddings
+            attn = getattr(layer, "self_attn", None)
+            if attn is None:
+                mixer = getattr(layer, "mixer", None)
+                if mixer is not None:
+                    attn = getattr(mixer, "inner_attn", mixer)
+
+            pos_emb = None
+            if attn is not None and hasattr(attn, "rotary_emb"):
+                pos_emb = attn.rotary_emb(hidden_state, position_ids)
+
+            try:
+                if pos_emb is not None:
+                    hidden_state = layer(hidden_state, attention_mask=attention_mask, position_embeddings=pos_emb)
+                else:
+                    hidden_state = layer(hidden_state, attention_mask=attention_mask, position_ids=position_ids)
+            except TypeError:
+                # Fall back to the simplest signature the layer accepts
+                if pos_emb is not None:
+                    hidden_state = layer(hidden_state, position_embeddings=pos_emb)
+                else:
+                    hidden_state = layer(hidden_state)
 
         out = hidden_state
 

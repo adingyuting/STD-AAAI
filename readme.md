@@ -3,20 +3,18 @@
 ### Train and Test the STD-PLM
 
 ```bash
-cd ./code/STD-PLM/src
-
-#prediction
-bash '../scripts/pems03.sh'
-
-#imputation
-bash '../scripts/pems08_sctc30.sh'
-
-#zero-shot
-bash '../scripts/pems03<-PEMS07.sh'
-
-#few-shot
-bash '../scripts/pems04_few.sh'
+python code/STD-PLM/src/main.py --dataset D1
 ```
+
+### Custom datasets
+
+For the built‑in raw table datasets (`D1` beijingPM2.5, `D2` beijingCO, `D3` sea, `D4` cailiCO), place your `data.*` and `position.*` files under `datasets/<name>/` and run:
+
+```bash
+python code/STD-PLM/src/main.py --dataset D1
+```
+
+When `data_path` or `adj_filename` are omitted, the loader automatically locates `data.*` and `position.*` under the dataset folder and uses the position file to construct the adjacency matrix.
 
 ### Arguments
 

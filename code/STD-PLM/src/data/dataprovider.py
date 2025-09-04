@@ -1,26 +1,60 @@
 import torch
 import numpy as np
 import torch.utils.data
-from utils.utils import get_adjacency_matrix_2direction, get_adjacency_matrix, get_randmask, linear_interpolate, get_block_mask
-from typing import Any, Dict, Optional, Tuple, Union
+from utils.utils import get_randmask, linear_interpolate, get_block_mask
 import pandas as pd
-from data.scaler import StandardScaler, MinMaxScaler
-import os
+from data.scaler import StandardScaler
+from pathlib import Path
+from scipy.io import loadmat
+from sklearn.metrics.pairwise import haversine_distances
+
+
+def load_table(path: Path):
+    """Read .mat/.csv/.txt automatically."""
+    if path.suffix.lower() == ".mat":
+        mat = loadmat(path)
+        key = next(k for k in mat if not k.startswith("__"))
+        return mat[key]
+    return pd.read_csv(path, sep="::", engine="python", header=None).values
+
+def build_adj_from_pos(pos: np.ndarray):
+    """Generate adjacency and distance matrices from coordinates."""
+    coords = np.radians(pos)
+    dist = haversine_distances(coords) * 6371000
+    sigma = dist[dist > 0].std()
+    adj = np.exp(-(dist ** 2) / (2 * sigma ** 2))
+    adj[adj < 1e-2] = 0
+    np.fill_diagonal(adj, 1)
+    return adj.astype(np.float32), dist.astype(np.float32)
 
 def generate_sample_by_sliding_window(data, sample_len, step=1):
+    """Generate sliding window samples.
 
-    sample = []
+    The original implementation assumed the series length was always greater
+    than zero and at least one window could be formed, which caused
+    ``torch.cat`` to raise ``RuntimeError: expected a non-empty list of
+    Tensors`` when the input sequence was empty.  This helper now guards
+    against that edge case and returns an empty tensor of the expected shape
+    when no data is available.
+    """
 
-    for i in range(0, data.shape[0] - sample_len, step):
+    T = data.shape[0]
 
-        sample.append(torch.unsqueeze(data[i:i+sample_len] , 0))
-    
-    if (data.shape[0] - sample_len) % step !=0 :
-        sample.append(torch.unsqueeze(data[-sample_len:] , 0))
+    if T == 0:
+        # No data at all; return an empty tensor so downstream code can decide
+        # how to handle it rather than crashing here.
+        return data.new_empty((0, sample_len, *data.shape[1:]))
 
-    sample = torch.concat(sample,dim=0)
+    if T <= sample_len:
+        # Not enough length for a full window; repeat the last ``sample_len``
+        return data[-sample_len:].unsqueeze(0)
 
-    return sample
+    sample = [data[i:i + sample_len].unsqueeze(0)
+              for i in range(0, T - sample_len + 1, step)]
+    if (T - sample_len) % step != 0:
+        sample.append(data[-sample_len:].unsqueeze(0))
+
+    return torch.cat(sample, dim=0)
 
 class BasicDataset(torch.utils.data.Dataset):
 
@@ -185,76 +219,57 @@ def generatetimestamp(start, periods, freq):
     return timestamp
 
 timestampfun = {
-    'PEMS08': lambda T : generatetimestamp(start='20160701 00:00:00',periods=T,freq='5min'),
-    'PEMS07': lambda T : generatetimestamp(start='20170501 00:00:00',periods=T,freq='5min'),
-    'PEMS04': lambda T : generatetimestamp(start='20180101 00:00:00',periods=T,freq='5min'),
-    'PEMS03': lambda T : generatetimestamp(start='20180901 00:00:00',periods=T,freq='5min'),
-    'NYCTAXI': lambda T : generatetimestamp(start='20160401 00:00:00',periods=T,freq='30min'),
-    'CHIBIKE': lambda T : generatetimestamp(start='20160401 00:00:00',periods=T,freq='30min'),
+    'D1': lambda T: generatetimestamp(start='2014-05-01 00:00:00', periods=T, freq='1D'),
+    'D2': lambda T: generatetimestamp(start='2014-05-01 00:00:00', periods=T, freq='1D'),
+    'D3': lambda T: generatetimestamp(start='1981-09-14 00:00:00', periods=T, freq='1W'),
+    'D4': lambda T: generatetimestamp(start='2010-01-01 00:00:00', periods=T, freq='1D'),
 }
 
-class PEMSFLOWProvider(DataProvider):
 
-    def read_data(self, data_path,  adj_path = None ) -> None:
+class CustomProvider(DataProvider):
+    """Load datasets stored as dense matrices with optional positions.
 
+    ``data_path`` should point to a table of shape ``(node, time)`` saved as
+    ``.mat`` or text/CSV file separated by ``::``. The loader transposes the
+    array to ``(time, node, 1)`` and constructs a mask where non-NaN values are
+    marked as observed. If ``adj_path`` is supplied, a position file with
+    longitude/latitude is used to build adjacency and distance matrices
+    on-the-fly; otherwise identity matrices are returned.
+    """
 
-        data = torch.from_numpy(np.load(data_path)['data'][...,:])
-        
+    def read_data(self, data_path, adj_path=None):
+        """Read dense matrix and optional position file.
+
+        If ``data_path`` or ``adj_path`` is ``None`` they are inferred from
+        ``datasets/<dataset>/`` following the naming convention
+        ``data.*`` and ``position.*`` respectively.
+        """
+        ds_dir = Path("datasets") / self.dataset
+        if data_path is None:
+            try:
+                data_path = next(ds_dir.glob("data.*"))
+            except StopIteration as e:
+                raise FileNotFoundError(f"No data file found under {ds_dir}") from e
+        table = load_table(Path(data_path))
+        data = torch.from_numpy(table.T[..., None].astype(np.float32))
+        mask = (~torch.isnan(data)).float()
+        data = torch.nan_to_num(data)
+
+        if adj_path is None:
+            adj_path = next(ds_dir.glob("position.*"), None)
+
+        if adj_path is not None:
+            pos = load_table(Path(adj_path))
+            adj_mx, distance_mx = build_adj_from_pos(pos)
+        else:
+            node_num = data.shape[1]
+            adj_mx = np.eye(node_num, dtype=np.float32)
+            distance_mx = adj_mx
+
         T, node_num, features = data.shape
-        if 'PEMS03' in self.dataset:
-            id_filename = adj_path.replace('csv','txt')
-        else :
-            id_filename = None
-        adj_mx, distance_mx = get_adjacency_matrix(adj_path, node_num, id_filename)
-        adj_mx = np.where(np.eye(node_num).astype('bool'),1,adj_mx)
-
-        timestamp = timestampfun[self.dataset[:6]](T)
-
-        return data, node_num, features, \
-               adj_mx, distance_mx, \
-               timestamp,torch.ones_like(data),torch.ones_like(data)
-
-class PEMSMISSINGProvider(DataProvider):
-
-    def read_data(self, data_path,  adj_path = None ) -> None:
-
-        dir_name = os.path.dirname(data_path)
-        fileName = os.path.basename(data_path)
-
-        true_datapath = os.path.join(dir_name,fileName.replace('miss','true')) 
-        miss_datapath = os.path.join(dir_name,fileName.replace('true','miss')) 
-
-        miss_data = np.load(miss_datapath)
-        mask = torch.from_numpy(miss_data['mask'][:, :, :].astype('long'))
-        data = np.load(true_datapath)['data'].astype(np.float32)[:, :, :]
-        data[np.isnan(data)] = 0
-        data = torch.from_numpy(data)
-
-        T, node_num, features = data.shape
- 
-        adj_mx, distance_mx = get_adjacency_matrix(adj_path, node_num)
-        adj_mx = np.where(np.eye(node_num).astype('bool'),1,adj_mx)
-
-        timestamp = timestampfun[self.dataset[:6]](T)
-
-        return data, node_num, features, \
-               adj_mx, distance_mx, \
-               timestamp,mask,torch.ones_like(data)
-    
-
-class NYCTAXIProvider(DataProvider):
-
-    def read_data(self, data_path,  adj_path = None ) -> None:
-
-
-        data = torch.from_numpy(np.load(data_path)['data'][...,:])
-        data = np.transpose(data,(1,0,2))
-        
-        T, node_num, features = data.shape
-
-        adj_mx, distance_mx = np.ones((node_num,node_num)).astype(np.float32),np.ones((node_num,node_num)).astype(np.float32)
         timestamp = timestampfun[self.dataset](T)
 
-        return data, node_num, features, \
-               adj_mx, distance_mx, \
-               timestamp,torch.ones_like(data),torch.ones_like(data)
+        return data, node_num, features, adj_mx, distance_mx, timestamp, mask, mask.clone()
+
+
+

@@ -1,20 +1,12 @@
 import torch
-import numpy as np
 import torch.utils.data
-from typing import Dict
-from data.dataprovider import PEMSFLOWProvider,PEMSMISSINGProvider,NYCTAXIProvider
+from data.dataprovider import CustomProvider
 
 data_dict = {
-    'PEMS08FLOW': PEMSFLOWProvider,
-    'PEMS04FLOW': PEMSFLOWProvider,
-    'PEMS03FLOW': PEMSFLOWProvider,
-    'PEMS07FLOW': PEMSFLOWProvider,
-    'PEMS08MISSING': PEMSMISSINGProvider,
-    'PEMS04MISSING': PEMSMISSINGProvider,
-    'PEMS03MISSING': PEMSMISSINGProvider,
-    'PEMS07MISSING': PEMSMISSINGProvider,
-    'NYCTAXI':NYCTAXIProvider,
-    'CHITAXI':NYCTAXIProvider,
+    'D1': CustomProvider,
+    'D2': CustomProvider,
+    'D3': CustomProvider,
+    'D4': CustomProvider,
 }
 
 def data_loader(dataset, batch_size, shuffle=True, drop_last=True):

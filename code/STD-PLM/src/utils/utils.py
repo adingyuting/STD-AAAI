@@ -2,11 +2,12 @@ import numpy as np
 import torch.nn as nn
 import time
 import os
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 import logging
 from matplotlib import pyplot as plt
 import torch
-import torchcde  
+import torchcde
 import networkx as nx
 
 def draw_mape_node(mape_node, save_path):
@@ -35,13 +36,19 @@ def draw_loss_line(train_loss_line, val_loss_line, save_path):
     plt.savefig(save_path)
     plt.close()
 
-def check_dir(path:str ,mkdir=False):
-    if os.path.exists(path):
+def check_dir(path: Union[str, Path], mkdir: bool = False):
+    """Verify that ``path`` exists.
+
+    If ``mkdir`` is ``True``, create the directory and any missing parents.
+    ``Path.mkdir`` gracefully handles the case where the directory already
+    exists, so this function is safe to call in concurrent settings.
+    """
+    p = Path(path)
+    if p.exists():
         return True
-    elif mkdir:
-        os.mkdir(path)
+    if mkdir:
+        p.mkdir(parents=True, exist_ok=True)
         return True
-    
     return False
 
 
