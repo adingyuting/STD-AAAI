@@ -10,16 +10,15 @@ from model.position import PositionalEncoding
 
 class DecodingLayer(nn.Module):
 
-    def __init__(self, input_dim ,emb_dim, output_dim):
+    def __init__(self, emb_dim, output_dim):
         super().__init__()
 
-        hidden_size = (emb_dim+output_dim)*2//3
+        hidden_size = (emb_dim + output_dim) * 2 // 3
         self.fc = nn.Sequential(
             nn.Linear(emb_dim, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, output_dim),
         )
-        #nn.Linear(in_features=input_dim,out_features=output_dim)
         
     def forward(self, llm_hidden):
 
@@ -228,9 +227,8 @@ class STALLM(nn.Module):
                                             emb_dim=self.emb_dim, \
                                             tim_dim=tim_dim,dropout=dropout,use_node_embedding=use_node_embedding)
 
-        self.out_mlp = DecodingLayer(input_dim=output_dim*sample_len, \
-                                     emb_dim=self.emb_dim, \
-                                     output_dim=output_dim*output_len)
+        self.out_mlp = DecodingLayer(emb_dim=self.emb_dim,
+                                     output_dim=output_dim * output_len)
 
         self.timeembedding = TimeEmbedding(t_dim=t_dim)
 
