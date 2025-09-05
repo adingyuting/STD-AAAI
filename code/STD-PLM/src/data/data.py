@@ -17,13 +17,13 @@ def data_loader(dataset, batch_size, shuffle=True, drop_last=True):
 
 def load_data(dataset,batch_size, sample_len,output_len, window_size, \
               input_dim , output_dim ,\
-               train_ratio, val_ratio, data_path , adj_path ,target_strategy, few_shot = 1, node_shuffle_seed = None):
+               train_ratio, val_ratio, data_path , adj_path ,target_strategy, few_shot = 1, node_shuffle_seed = None, device=torch.device("cpu")):
 
     dataprovider = data_dict[dataset](data_path, adj_path,dataset,node_shuffle_seed)
 
     train_set, val_set, test_set = dataprovider.getdataset(sample_len=sample_len,output_len=output_len,window_size=window_size, \
                                                            input_dim = input_dim , output_dim = output_dim,
-                                                           train_ratio=train_ratio,val_ratio=val_ratio,target_strategy=target_strategy, few_shot = few_shot)
+                                                           train_ratio=train_ratio,val_ratio=val_ratio,target_strategy=target_strategy, few_shot = few_shot, device=device)
 
     train_loader = data_loader(train_set, batch_size=batch_size)
 

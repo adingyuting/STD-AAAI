@@ -47,7 +47,7 @@ def TrainEpoch(loader, model, optim, loss_fn,  prompt_prefix,scaler, need_step :
 
 
         if args.task != 'prediction':
-            cond_mask = torch.concat((cond_mask,torch.zeros(B,ob_mask.shape[1]-cond_mask.shape[1],N,F).cuda()),dim=1)
+            cond_mask = torch.concat((cond_mask,torch.zeros(B,ob_mask.shape[1]-cond_mask.shape[1],N,F, device=cond_mask.device)),dim=1)
             eval_mask = (ob_mask - cond_mask).bool()[...,:args.output_dim]
         else:
             eval_mask = ob_mask[:,-args.predict_len:].bool()[...,:args.output_dim]
@@ -97,7 +97,7 @@ def TestEpoch(loader, model,  prompt_prefix, scaler, save=False):
             predict = predict.view(B,N,-1,args.output_dim).permute(0,2,1,3).contiguous()
 
             if args.task != 'prediction':
-                cond_mask = torch.concat((cond_mask,torch.zeros(B,ob_mask.shape[1]-cond_mask.shape[1],N,F).cuda()),dim=1)
+                cond_mask = torch.concat((cond_mask,torch.zeros(B,ob_mask.shape[1]-cond_mask.shape[1],N,F, device=cond_mask.device)),dim=1)
                 eval_mask = (ob_mask - cond_mask).bool()[...,:args.output_dim]
             else:
                 eval_mask = ob_mask[:,-args.predict_len:].bool()[...,:args.output_dim]
@@ -249,6 +249,7 @@ def getllm(args):
 if __name__ == '__main__':
     
     args = InitArgs()
+    device = torch.device(args.device if args.device != 'cuda' or torch.cuda.is_available() else 'cpu')
 
     output_len = args.predict_len
     window_size = args.sample_len + args.predict_len
@@ -273,7 +274,7 @@ if __name__ == '__main__':
                                            train_ratio = args.train_ratio, val_ratio = args.val_ratio, \
                                             data_path = args.data_path , adj_path = args.adj_filename, \
                                             target_strategy = args.target_strategy, \
-                                           few_shot = args.few_shot, node_shuffle_seed = args.node_shuffle_seed)
+                                           few_shot = args.few_shot, node_shuffle_seed = args.node_shuffle_seed, device=device)
     #distance_mx = cal_shortest_path_length(adj_mx, distance_mx)
 
     prompt_prefix = None
@@ -284,7 +285,7 @@ if __name__ == '__main__':
 
         prompt_prefix = tokenizer(prompt_prefix, 
                         return_tensors="pt", return_attention_mask=False)
-        prompt_prefix = prompt_prefix['input_ids'].cuda().view(-1,1)#[:-1,:]
+        prompt_prefix = prompt_prefix['input_ids'].to(device).view(-1,1)#[:-1,:]
 
 
     LOG_DIR = os.path.join(args.log_root,f'{get_time_str()}_{args.desc}_{random_str()}')
@@ -304,7 +305,7 @@ if __name__ == '__main__':
                     sag_dim = args.sag_dim, sag_tokens = args.sag_tokens, \
                      adj_mx = adj_mx, dis_mx = distance_mx, \
                     use_node_embedding = args.node_embedding ,use_timetoken= args.time_token, \
-                    use_sandglassAttn = args.sandglassAttn, dropout = args.dropout, trunc_k = args.trunc_k, t_dim = args.t_dim,wo_conloss=args.wo_conloss).cuda()
+                    use_sandglassAttn = args.sandglassAttn, dropout = args.dropout, trunc_k = args.trunc_k, t_dim = args.t_dim,wo_conloss=args.wo_conloss).to(device)
     
     if not args.from_pretrained_model is None:
         model.load(args.from_pretrained_model)

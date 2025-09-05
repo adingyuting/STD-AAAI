@@ -65,6 +65,7 @@ def AddDataArgs(parser):
     parser.add_argument("--output_dim", default=1, type=int)
 
 def AddTrainArgs(parser):
+    parser.add_argument("--device", default="cuda", type=str, help="device to run the model")
 
     parser.add_argument("--lr", default=0.001, type=float)
 

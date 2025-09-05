@@ -114,13 +114,13 @@ class DataProvider():
 
     def getdataset(self, sample_len,output_len, window_size, \
                     input_dim , output_dim , \
-                   train_ratio, val_ratio,target_strategy, few_shot = 1):
+                   train_ratio, val_ratio,target_strategy, few_shot = 1, device=torch.device("cpu")):
 
-        self.data = self.data.float().cuda()
+        self.data = self.data.float().to(device)
 
-        self.timestamp = self.timestamp.cuda()
-        self.mask = self.mask.float().cuda()
-        self.mask_eval = self.mask_eval.float().cuda()
+        self.timestamp = self.timestamp.to(device)
+        self.mask = self.mask.float().to(device)
+        self.mask_eval = self.mask_eval.float().to(device)
 
         all_len = self.data.shape[0]
         train_len = int(all_len * train_ratio)
@@ -146,11 +146,13 @@ class DataProvider():
         train_x = self.scaler.transform(train_x)
         train_te = generate_sample_by_sliding_window(train_te, sample_len=window_size)
         train_ob_mask = generate_sample_by_sliding_window(train_mask, sample_len=window_size)[...,:input_dim]
+        flat_mask = train_ob_mask[:,:sample_len].any(dim=-1)
         if target_strategy=='random':
-            train_cond_mask = get_randmask(train_ob_mask[:,:sample_len],0,1).cuda()[...,:input_dim]
+            train_cond_flat = get_randmask(flat_mask,0,1).to(device)
         else :
             train_len = train_ob_mask.shape[0]
-            train_cond_mask = torch.concat([get_block_mask(train_ob_mask[i,:sample_len].cpu(), target_strategy='hybrid',min_seq=3, max_seq=12).cuda().unsqueeze(0) for i in range(train_len)])[...,:input_dim]
+            train_cond_flat = torch.stack([get_block_mask(flat_mask[i].cpu(), target_strategy='hybrid',min_seq=3, max_seq=12).to(device) for i in range(train_len)])
+        train_cond_mask = train_cond_flat.unsqueeze(-1).expand(-1,-1,-1,input_dim)
         #train_x[train_cond_mask==0] = 0
         #train_x[train_cond_mask==0] = torch.nan
         #B,T,N,F = train_x.shape
@@ -166,7 +168,8 @@ class DataProvider():
         val_te = generate_sample_by_sliding_window(val_te, sample_len=window_size)
 
         val_ob_mask = generate_sample_by_sliding_window(val_mask_eval, sample_len=window_size)[...,:input_dim]
-        val_cond_mask = generate_sample_by_sliding_window(val_mask, sample_len=window_size)[:,:sample_len][...,:input_dim]
+        val_cond_flat = generate_sample_by_sliding_window(val_mask, sample_len=window_size)[:,:sample_len][...,:input_dim].any(dim=-1)
+        val_cond_mask = val_cond_flat.unsqueeze(-1).expand(-1,-1,-1,input_dim)
         #val_x[val_cond_mask==0] = 0
         #val_x[val_cond_mask==0] = torch.nan
         #B,T,N,F = val_x.shape
@@ -182,7 +185,8 @@ class DataProvider():
         test_te = generate_sample_by_sliding_window(test_te, sample_len=window_size)
 
         test_ob_mask = generate_sample_by_sliding_window(test_mask_eval, sample_len=window_size)[...,:input_dim]
-        test_cond_mask = generate_sample_by_sliding_window(test_mask, sample_len=window_size)[:,:sample_len][...,:input_dim]
+        test_cond_flat = generate_sample_by_sliding_window(test_mask, sample_len=window_size)[:,:sample_len][...,:input_dim].any(dim=-1)
+        test_cond_mask = test_cond_flat.unsqueeze(-1).expand(-1,-1,-1,input_dim)
         #test_x[test_cond_mask==0] = 0
         #test_x[test_cond_mask==0] = torch.nan
         #B,T,N,F = test_x.shape

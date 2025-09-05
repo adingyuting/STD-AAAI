@@ -10,16 +10,15 @@ from model.position import PositionalEncoding
 
 class DecodingLayer(nn.Module):
 
-    def __init__(self, input_dim ,emb_dim, output_dim):
+    def __init__(self, emb_dim, output_dim):
         super().__init__()
 
-        hidden_size = (emb_dim+output_dim)*2//3
+        hidden_size = (emb_dim + output_dim) * 2 // 3
         self.fc = nn.Sequential(
             nn.Linear(emb_dim, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, output_dim),
         )
-        #nn.Linear(in_features=input_dim,out_features=output_dim)
         
     def forward(self, llm_hidden):
 
@@ -79,8 +78,8 @@ class NodeEmbedding(nn.Module):
         eigvec, eigval = lap_eig(self.adj_mx)
         k = self.k
         if k>N:
-            eigvec = np.concatenate((eigvec, np.zeros(N,k-N)), dim = -1)
-            eigval = np.concatenate((eigval, np.zeros(k-N)), dim = -1)
+            eigvec = np.concatenate((eigvec, np.zeros((N, k - N))), axis=-1)
+            eigval = np.concatenate((eigval, np.zeros(k - N)), axis=0)
         
         ind = np.abs(eigval).argsort(axis=0)[::-1][:k]
 
@@ -121,7 +120,9 @@ class Time2Token(nn.Module):
         B,N,TF = x.shape
 
         x = x.view(B,N,self.sample_len,-1) #B,N,T,F
-        x = torch.concat((x,mask.view(B,N,self.sample_len,-1)),dim=-1)
+        mask = mask.permute(0,2,1,3).contiguous()
+        mask = mask.view(B,N,self.sample_len,-1)
+        x = torch.concat((x,mask),dim=-1)
         x = x.mean(dim=1) #B,T,F
 
         state = x.view(B,1,-1)
@@ -191,12 +192,15 @@ class Node2Token(nn.Module):
 
 class STALLM(nn.Module):
     def __init__(self,basemodel,sample_len, output_len,\
+                 
                  input_dim , output_dim , 
                   node_emb_dim , sag_dim, sag_tokens, \
                  adj_mx = None, dis_mx = None , use_node_embedding = True,\
                  use_timetoken = True, use_sandglassAttn = True, \
-                 dropout = 0, trunc_k = 16, t_dim = 64,wo_conloss=False):
+                 dropout = 0, trunc_k = 16, t_dim = 64,wo_conloss=False, device=None):
         super().__init__()
+
+        self.device = torch.device(device if device is not None else ('cuda' if torch.cuda.is_available() else 'cpu'))
 
         self.topological_sort_node = True
 
@@ -225,9 +229,8 @@ class STALLM(nn.Module):
                                             emb_dim=self.emb_dim, \
                                             tim_dim=tim_dim,dropout=dropout,use_node_embedding=use_node_embedding)
 
-        self.out_mlp = DecodingLayer(input_dim=output_dim*sample_len, \
-                                     emb_dim=self.emb_dim, \
-                                     output_dim=output_dim*output_len)
+        self.out_mlp = DecodingLayer(emb_dim=self.emb_dim,
+                                     output_dim=output_dim * output_len)
 
         self.timeembedding = TimeEmbedding(t_dim=t_dim)
 
@@ -342,11 +345,11 @@ class STALLM(nn.Module):
 
     def setadj(self,adj_mx,dis_mx):
 
-        self.adj_mx = torch.tensor(adj_mx).cuda()
-        self.dis_mx = torch.tensor(dis_mx).cuda()
+        self.adj_mx = torch.tensor(adj_mx, device=self.device)
+        self.dis_mx = torch.tensor(dis_mx, device=self.device)
         self.d_mx = self.adj_mx.sum(dim=1)
         N = self.adj_mx.shape[0]
-        self.alpha = torch.tensor([1.05] * N).cuda() + torch.softmax(self.d_mx,dim=0)*5 
+        self.alpha = torch.tensor([1.05] * N, device=self.device) + torch.softmax(self.d_mx,dim=0)*5 
         self.node_order,self.node_order_rev = topological_sort(adj_mx)
 
 
