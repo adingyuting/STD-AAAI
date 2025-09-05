@@ -120,7 +120,9 @@ class Time2Token(nn.Module):
         B,N,TF = x.shape
 
         x = x.view(B,N,self.sample_len,-1) #B,N,T,F
-        x = torch.concat((x,mask.view(B,N,self.sample_len,-1)),dim=-1)
+        mask = mask.permute(0,2,1,3).contiguous()
+        mask = mask.view(B,N,self.sample_len,-1)
+        x = torch.concat((x,mask),dim=-1)
         x = x.mean(dim=1) #B,T,F
 
         state = x.view(B,1,-1)
